@@ -1,0 +1,59 @@
+import numpy as np
+import pandas as pd
+from sklearn.metrics.pairwise import cosine_similarity
+from sklearn.feature_extraction.text import CountVectorizer
+from sklearn.manifold import TSNE
+
+class MusicRecommender:
+    def __init__(self, dataset):
+        self.dataset = dataset
+        self.song_vectorizer = CountVectorizer()
+        self.song_vectorizer.fit(dataset['genres'])
+
+    def get_similarities(self, song_name):
+        text_array1 = self.song_vectorizer.transform(self.dataset[self.dataset['name']==song_name]['genres']).toarray()
+        num_array1 = self.dataset[self.dataset['name']==song_name].select_dtypes(include=np.number).to_numpy()
+
+        sim = []
+        for idx, row in self.dataset.iterrows():
+            name = row['name']
+
+            text_array2 = self.song_vectorizer.transform(self.dataset[self.dataset['name']==name]['genres']).toarray()
+            num_array2 = self.dataset[self.dataset['name']==name].select_dtypes(include=np.number).to_numpy()
+
+            text_sim = cosine_similarity(text_array1, text_array2)[0][0]
+            num_sim = cosine_similarity(num_array1, num_array2)[0][0]
+            sim.append(text_sim + num_sim)
+
+        return sim
+
+    def recommend_songs(self, song_name, n_recommendations=10):
+        # Base case
+        if self.dataset[self.dataset['name'] == song_name].shape[0] == 0:
+            return None
+
+        similarities = self.get_similarities(song_name)
+
+        # Sort songs by similarity and popularity
+        self.dataset['similarity_factor'] = similarities
+        self.dataset.sort_values(by=['similarity_factor', 'popularity'],
+                               ascending=[False, False],
+                               inplace=True)
+
+        # Return top n recommendations
+        return self.dataset[['name', 'artists']][1:n_recommendations+1]
+
+if __name__ == '__main__':
+    # Load dataset
+    tracks = pd.read_csv('tracks_records.csv')
+
+    # Create recommender system
+    recommender = MusicRecommender(tracks)
+
+    # Recommend songs for a given song
+    song_name = 'Shape of You'
+    recommendations = recommender.recommend_songs(song_name)
+
+    # Print recommendations
+    print('Recommended songs for {}:'.format(song_name))
+    print(recommendations)
