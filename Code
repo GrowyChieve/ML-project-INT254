@@ -1,59 +1,52 @@
-import numpy as np
 import pandas as pd
 from sklearn.metrics.pairwise import cosine_similarity
-from sklearn.feature_extraction.text import CountVectorizer
-from sklearn.manifold import TSNE
 
-class MusicRecommender:
-    def __init__(self, dataset):
-        self.dataset = dataset
-        self.song_vectorizer = CountVectorizer()
-        self.song_vectorizer.fit(dataset['genres'])
+# Load the original dataset
+data = pd.read_csv('music_data2.csv')
 
-    def get_similarities(self, song_name):
-        text_array1 = self.song_vectorizer.transform(self.dataset[self.dataset['name']==song_name]['genres']).toarray()
-        num_array1 = self.dataset[self.dataset['name']==song_name].select_dtypes(include=np.number).to_numpy()
+# Create a user-item matrix
+user_item_matrix = data.pivot_table(index='user_id', columns='song_id', values='listen_count', fill_value=0)
 
-        sim = []
-        for idx, row in self.dataset.iterrows():
-            name = row['name']
+# Calculate cosine similarity between users
+user_similarity_matrix = cosine_similarity(user_item_matrix)
 
-            text_array2 = self.song_vectorizer.transform(self.dataset[self.dataset['name']==name]['genres']).toarray()
-            num_array2 = self.dataset[self.dataset['name']==name].select_dtypes(include=np.number).to_numpy()
+# Get recommendations for a specific user with song names
+def get_recommendations_with_names(user_id, user_similarity_matrix, user_item_matrix, data):
+    # Get the user's similarity scores with other users
+    user_similarities = user_similarity_matrix[user_id]
 
-            text_sim = cosine_similarity(text_array1, text_array2)[0][0]
-            num_sim = cosine_similarity(num_array1, num_array2)[0][0]
-            sim.append(text_sim + num_sim)
+    # Find the songs the user hasn't listened to
+    listened_songs = user_item_matrix.loc[user_id]
+    not_listened = listened_songs.isnull()
 
-        return sim
+    # Calculate recommendations based on similarity scores
+    recommended_songs = []
+    for song_id in user_item_matrix.columns:
+        if listened_songs[song_id] > 0:  # User has listened to this song
+            continue
 
-    def recommend_songs(self, song_name, n_recommendations=10):
-        # Base case
-        if self.dataset[self.dataset['name'] == song_name].shape[0] == 0:
-            return None
+        song_listen_count = user_item_matrix[song_id]  # Listen count for the song by all users
+        similarity_scores = user_similarities * (song_listen_count.fillna(0))  # Multiply similarities with listen counts
+        weighted_average = similarity_scores.sum() / (user_similarities.sum() + 1e-10)  # Calculate the weighted average
 
-        similarities = self.get_similarities(song_name)
+        if weighted_average > 0:  # If a positive recommendation
+            recommended_songs.append((song_id, weighted_average))
 
-        # Sort songs by similarity and popularity
-        self.dataset['similarity_factor'] = similarities
-        self.dataset.sort_values(by=['similarity_factor', 'popularity'],
-                               ascending=[False, False],
-                               inplace=True)
+    # Sort recommendations by weighted average and return top 10
+    recommended_songs.sort(key=lambda x: x[1], reverse=True)
+    recommended_song_ids = [song_id for song_id, _ in recommended_songs[:10]]
 
-        # Return top n recommendations
-        return self.dataset[['name', 'artists']][1:n_recommendations+1]
+    # Return song titles along with IDs that exist in the dataset
+    recommended_songs_with_names = []
+    for song_id in recommended_song_ids:
+        song_name = data[data['song_id'] == song_id]['song_name'].iloc[0] if song_id in data['song_id'].values else f"Song_{song_id}"
+        recommended_songs_with_names.append((song_id, song_name))
 
-if __name__ == '__main__':
-    # Load dataset
-    tracks = pd.read_csv('tracks_records.csv')
+    return recommended_songs_with_names
 
-    # Create recommender system
-    recommender = MusicRecommender(tracks)
-
-    # Recommend songs for a given song
-    song_name = 'Shape of You'
-    recommendations = recommender.recommend_songs(song_name)
-
-    # Print recommendations
-    print('Recommended songs for {}:'.format(song_name))
-    print(recommendations)
+# Example usage: Recommendations for a user with song names
+user_id = 1
+recommendations_with_names = get_recommendations_with_names(user_id, user_similarity_matrix, user_item_matrix, data)
+print("Recommendations for User", user_id, "with Song Names:")
+for song_id, song_name in recommendations_with_names:
+    print(f"Song ID: {song_id}, Song Name: {song_name}")
